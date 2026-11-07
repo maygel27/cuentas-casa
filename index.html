@@ -332,8 +332,11 @@ function renderTabs(){
 }
 function monthPicker(){return `<div class="month"><button data-act="prev" aria-label="Mes anterior">‹</button><span>${esc(monthName(month))}</span><button data-act="next" aria-label="Mes siguiente">›</button></div>`}
 
+function extrasMes(){return byTipo("ingreso").filter(x=>(x.fecha||"").slice(0,7)===month)}
 function vInicio(){
   const c=cfg(), al=c.alerta/100;
+  const ex=extrasMes().sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||"")), extra=ex.reduce((s,x)=>s+(x.valor||0),0), base=c.ingreso||0;
+  c.ingreso=base+extra;
   const gm=gastosMes(), pm=pagosMes();
   const gastado=gm.reduce((s,g)=>s+(g.valor||0),0), pagadoMes=pm.reduce((s,p)=>s+(p.valor||0),0);
   const salio=gastado+pagadoMes, queda=c.ingreso-salio;
@@ -348,7 +351,7 @@ function vInicio(){
   if(!c.ingreso) h+=`<div class="banner warn" style="margin-bottom:12px">Empieza por escribir el ingreso mensual del hogar en <b>Presupuesto</b>. Con eso se calculan los porcentajes.</div>`;
   h+=`<div class="hero"><div><div class="lbl">Te queda este mes</div><div class="big">${c.ingreso?$$(queda):"—"}</div></div>
    <div class="meter" aria-label="Parte del ingreso usada"><i style="width:${usedPct*100}%"></i></div>
-   <div class="hero-row"><div><div class="lbl">Ingreso</div><b>${$$(c.ingreso)}</b></div><div><div class="lbl">Gastos</div><b>${$$(gastado)}</b></div><div><div class="lbl">Pagos a deudas</div><b>${$$(pagadoMes)}</b></div></div></div>`;
+   <div class="hero-row"><div><div class="lbl">Ingreso${extra?" (con extras)":""}</div><b>${$$(c.ingreso)}</b></div><div><div class="lbl">Gastos</div><b>${$$(gastado)}</b></div><div><div class="lbl">Pagos a deudas</div><b>${$$(pagadoMes)}</b></div></div></div>`;
 
   // alertas de pago
   const urg=debts.filter(x=>!x.d.nomina&&x.i.dias!=null&&x.i.dias<=7).sort((a,b)=>a.i.dias-b.i.dias);
@@ -358,6 +361,7 @@ function vInicio(){
   // 50/30/20
   const sumB=b=>gm.filter(g=>catOf(g.cat).b===b).reduce((s,g)=>s+(g.valor||0),0);
   const B=[["Necesidades",.5,sumB("nec"),"max"],["Deseos",.3,sumB("des"),"max"],["Ahorro y deudas",.2,sumB("aho")+pagadoMes,"min"]];
+  h+=`<section><div class="sec-h"><h2>Ingresos del mes</h2><button class="btn sm" data-act="nuevo-ingreso">Anotar ingreso extra</button></div><div class="card list"><div class="row"><div><div class="name">Ingreso fijo del hogar</div><div class="sub">Se cambia en Presupuesto</div></div><span class="amt">${$$(base)}</span></div>${ex.map(x=>`<div class="row"><div><div class="name">${esc(x.desc||"Ingreso extra")}</div><div class="sub">${esc(fmtDate(x.fecha))}</div></div><div style="display:flex;gap:6px;align-items:center"><span class="amt" style="color:var(--good)">+${$$(x.valor)}</span><button class="btn sm" data-act="editar-ingreso" data-id="${x.id}" aria-label="Editar">✎</button></div></div>`).join("")}${extra?`<div class="row"><span class="name">Total del mes</span><span class="amt">${$$(base+extra)}</span></div>`:""}</div></section>`;
   h+=`<section><div class="sec-h"><h2>Regla 50/30/20</h2><span class="sub">del ingreso</span></div><div class="card list">${B.map(([n,meta,v,t])=>{
     const p=c.ingreso?v/c.ingreso:0; let cls="neutral",txt="Sin datos";
     if(c.ingreso&&v){if(t==="max"){cls=p<=meta?"good":"bad";txt=p<=meta?"Dentro de la meta":"Por encima"}else{cls=p>=meta?"good":"high";txt=p>=meta?"Cumpliendo":"Por debajo"}}
@@ -476,6 +480,7 @@ const head=(t)=>`<div class="row"><h2>${t}</h2><button class="btn sm" data-act="
 
 function formChoice(){modal(head("¿Qué quieres anotar?")+`<div class="choice">
  <button class="btn" data-act="nuevo-gasto"><b>Un gasto</b><span class="sub">Mercado, servicios, tinto, domicilio, salida</span></button>
+ <button class="btn" data-act="nuevo-ingreso"><b>Un ingreso extra</b><span class="sub">Trabajo, venta, prima: se suma al mes</span></button>
  <button class="btn" data-act="nuevo-fijo"><b>Una cuenta fija</b><span class="sub">Servicios, planes, arriendo: se repite cada mes</span></button>
  <button class="btn" data-act="pagar"><b>Un pago a una deuda</b><span class="sub">Cuota o abono; el saldo se descuenta solo</span></button>
  <button class="btn" data-act="nueva-deuda"><b>Una deuda nueva</b><span class="sub">Préstamo, crédito, fiado, tarjeta</span></button>
@@ -506,6 +511,14 @@ function formPago(deudaId){
   updCap();
 }
 function updCap(){const el=document.getElementById("p-cap");if(!el)return;const val=num(document.getElementById("p-valor").value),int=num(document.getElementById("p-interes").value);el.textContent=val?("A la deuda le bajan "+$$(Math.max(val-int,0))+"."+(int>=val?" Con este valor solo pagas intereses.":"")):"";}
+function formIngreso(id){
+  const x=id?items.get(id):{};
+  modal(head(id?"Editar ingreso":"Ingreso extra")+`<form id="f-ingreso" data-id="${id||""}">
+  <div class="f2"><label>Valor<input id="n-valor" required inputmode="numeric" value="${x.valor||""}"></label><label>Fecha<input id="n-fecha" type="date" value="${x.fecha||today()}"></label></div>
+  <label>De qué es<input id="n-desc" value="${esc(x.desc||"")}" placeholder="Ej: Trabajo extra, venta, prima"></label>
+  <p class="note">Consejo: lo extra rinde más si va directo a la deuda más cara.</p>
+  <div class="btns"><button class="btn pri" type="submit">${id?"Guardar":"Anotar ingreso"}</button>${id?`<button class="btn danger" type="button" data-act="borrar-ingreso" data-id="${id}">Eliminar</button>`:""}</div></form>`);
+}
 function formFijo(id){
   const f=id?items.get(id):{cat:"fijos"};
   const k=catOf(f.cat);
@@ -570,6 +583,7 @@ document.addEventListener("submit",async e=>{
     put(id,{...old,tipo:"deuda",id,nombre:v("d-nombre"),acreedor:v("d-acreedor"),total:num(v("d-total")),cuota:num(v("d-cuota")),tasa:decimal(v("d-tasa")),dia:Number(v("d-dia"))||null,inicio:v("d-inicio"),nomina:document.getElementById("d-nomina").checked,categoria:v("d-tipo")});
     closeModal();toast(f.dataset.id?"Deuda actualizada":"Deuda agregada");if(!f.dataset.id){tab="deudas";openDebt=id;render()}}
   if(f.id==="f-pago"){const id=uid("pago"),dId=v("p-deuda");put(id,{tipo:"pago",id,deudaId:dId,valor:num(v("p-valor")),interes:Math.min(num(v("p-interes")),num(v("p-valor"))),fecha:v("p-fecha"),medio:v("p-medio"),nota:v("p-nota")});closeModal();const s=debtInfo(items.get(dId)).saldo;toast(s===0?"¡Deuda pagada por completo!":"Pago guardado. Quedan "+$$(s))}
+  if(f.id==="f-ingreso"){const id=f.dataset.id||uid("ingreso");put(id,{tipo:"ingreso",id,valor:num(v("n-valor")),fecha:v("n-fecha"),desc:v("n-desc")});closeModal();toast("Ingreso anotado");return}
   if(f.id==="f-fijo"){const id=f.dataset.id||uid("fijo");put(id,{tipo:"fijo",id,nombre:v("x-nombre"),valor:num(v("x-valor")),dia:Number(v("x-dia"))||null,cat:v("g-cat"),sub:v("g-sub")});closeModal();toast("Cuenta fija guardada");return}
   if(f.id==="f-pagofijo"){const fx=items.get(f.dataset.id),id=uid("gasto");put(id,{tipo:"gasto",id,fijoId:fx.id,valor:num(v("g-valor")),fecha:v("g-fecha"),cat:fx.cat,sub:fx.sub,desc:fx.nombre,medio:v("g-medio")});closeModal();toast(fx.nombre+" pagada");return}
   if(f.id==="f-gasto"){const id=f.dataset.id||uid("gasto");put(id,{...(items.get(id)||{}),tipo:"gasto",id,valor:num(v("g-valor")),fecha:v("g-fecha"),cat:v("g-cat"),sub:v("g-sub"),desc:v("g-desc"),medio:v("g-medio")});closeModal();toast("Gasto anotado")}
@@ -602,6 +616,9 @@ document.addEventListener("click",e=>{
     case"pagar":formPago(id);break;
     case"nuevo-gasto":formGasto();break;
     case"nuevo-fijo":formFijo();break;
+    case"nuevo-ingreso":formIngreso();break;
+    case"editar-ingreso":formIngreso(id);break;
+    case"borrar-ingreso":confirmBox("¿Eliminar este ingreso?",()=>{del(id);toast("Ingreso eliminado")});break;
     case"editar-fijo":formFijo(id);break;
     case"pagar-fijo":formPagoFijo(id);break;
     case"borrar-fijo":confirmBox("¿Eliminar esta cuenta fija? Los pagos que ya anotaste se quedan en Gastos.",()=>{del(id);toast("Cuenta fija eliminada")});break;
