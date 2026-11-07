@@ -274,10 +274,14 @@ function pagosDe(id){return byTipo("pago").filter(p=>p.deudaId===id)}
 function daysIn(y,m){return new Date(y,m,0).getDate()}
 function debtInfo(d){
   const c=cfg();
-  const pagado=pagosDe(d.id).reduce((s,p)=>s+(p.valor||0),0);
+  const ps=pagosDe(d.id);
+  const intereses=ps.reduce((s,p)=>s+(p.interes||0),0);
+  const pagado=ps.reduce((s,p)=>s+Math.max((p.valor||0)-(p.interes||0),0),0);
   const total=d.total||0, saldo=Math.max(total-pagado,0), avance=total?Math.min(pagado/total,1):0;
+  const tm=tasaMes(d.tasa), interesMes=Math.round(saldo*tm);
   let estado=saldo===0&&total>0?"Pagada":avance>=.75?"Casi termina":avance>=.4?"En camino":"Lejos";
-  const faltan=d.cuota&&saldo?Math.ceil(saldo/d.cuota):null;
+  let faltan=null, soloInteres=false;
+  if(d.cuota&&saldo){ if(tm>0){ if(d.cuota<=saldo*tm){soloInteres=true} else faltan=Math.ceil(-Math.log(1-tm*saldo/d.cuota)/Math.log(1+tm)) } else faltan=Math.ceil(saldo/d.cuota) }
   let fin=null; if(faltan){fin=shiftMonth(ym(new Date()),faltan)}
   let dias=null, pagoMes=false;
   if(saldo>0&&d.dia){
@@ -288,8 +292,9 @@ function debtInfo(d){
     dias=Math.round((due-t)/864e5);
   }
   let tasa=null; if(d.tasa){tasa=d.tasa>c.usura?"Supera la usura":d.tasa>=c.usura*c.alerta/100?"Tasa alta":"Normal"}
-  return {pagado,saldo,avance,estado,faltan,fin,dias,pagoMes,tasa};
+  return {pagado,saldo,avance,estado,faltan,fin,dias,pagoMes,tasa,intereses,interesMes,soloInteres};
 }
+function tasaMes(ea){return ea?Math.pow(1+ea/100,1/12)-1:0}
 function estadoCls(e){return {"Pagada":"good","Casi termina":"good","En camino":"warn","Lejos":"bad"}[e]||"neutral"}
 function tasaCls(t){return t==="Supera la usura"?"bad":t==="Tasa alta"?"high":"good"}
 function diasTxt(n){if(n==null)return"";if(n<0)return"Atrasada "+(-n)+" día"+(n===-1?"":"s");if(n===0)return"Vence hoy";return"Vence en "+n+" día"+(n===1?"":"s")}
@@ -372,11 +377,13 @@ function debtCard(d){
   if(open){
     const ps=pagosDe(d.id).sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||""));
     h+=`<div class="detail" data-stop>
-     <div class="grid2"><div class="kv"><span class="lbl">Cuota mensual</span><b>${$$(d.cuota)}</b></div><div class="kv"><span class="lbl">Día de pago</span><b>${d.dia||"—"}</b></div><div class="kv"><span class="lbl">Cuotas que faltan</span><b>${i.faltan??"—"}</b></div><div class="kv"><span class="lbl">Terminas aprox.</span><b style="text-transform:capitalize">${i.fin?esc(monthName(i.fin)):"—"}</b></div></div>
-     ${i.tasa==="Supera la usura"?`<div class="banner bad">Esta tasa pasa el tope legal de usura (${String(c.usura).replace(".",",")}% E.A.). Puedes reclamar ante la entidad o la Superfinanciera.</div>`:""}
+     <div class="grid2"><div class="kv"><span class="lbl">Cuota mensual</span><b>${$$(d.cuota)}</b></div><div class="kv"><span class="lbl">Día de pago</span><b>${d.dia||"—"}</b></div><div class="kv"><span class="lbl">Cuotas que faltan</span><b>${i.soloInteres?"Nunca":(i.faltan??"—")}</b></div><div class="kv"><span class="lbl">Terminas aprox.</span><b style="text-transform:capitalize">${i.fin?esc(monthName(i.fin)):"—"}</b></div></div>
+     ${d.tasa&&i.saldo?`<div class="grid2"><div class="kv"><span class="lbl">Intereses de este mes</span><b>${$$(i.interesMes)}</b></div><div class="kv"><span class="lbl">Intereses ya pagados</span><b>${$$(i.intereses)}</b></div></div>`:""}
+     ${i.soloInteres?`<div class="banner bad">La cuota solo alcanza para los intereses (${$$(i.interesMes)} al mes). Así la deuda no baja nunca: hay que pagar más.</div>`:""}
+     ${i.tasa==="Supera la usura"?`<div class="banner bad">Esta tasa pasa el tope legal de usura (${String(c.usura).replace(".",",")}% E.A.). Si es un banco, puedes reclamar ante la Superfinanciera. Si es un préstamo informal, es la primera que conviene salir.</div>`:""}
      <div class="btns">${i.saldo>0?`<button class="btn pri" data-act="pagar" data-id="${d.id}">Registrar pago</button>`:""}<button class="btn" data-act="editar-deuda" data-id="${d.id}">Editar</button><button class="btn danger" data-act="borrar-deuda" data-id="${d.id}">Eliminar</button></div>
      <h3>Pagos (${ps.length})</h3>
-     ${ps.length?`<div class="tw"><table><thead><tr><th>Fecha</th><th>Medio</th><th class="r">Valor</th><th></th></tr></thead><tbody>${ps.map(p=>`<tr><td>${esc(fmtDate(p.fecha))}</td><td>${esc(p.medio||"")}${p.nota?`<div class="sub">${esc(p.nota)}</div>`:""}</td><td class="r">${$$(p.valor)}</td><td class="r"><button class="btn sm danger" data-act="borrar-pago" data-id="${p.id}" aria-label="Borrar pago">✕</button></td></tr>`).join("")}</tbody></table></div>`:`<p class="note">Aún no hay pagos registrados.</p>`}
+     ${ps.length?`<div class="tw"><table><thead><tr><th>Fecha</th><th>Medio</th><th class="r">Valor</th><th class="r">Abono a capital</th><th></th></tr></thead><tbody>${ps.map(p=>`<tr><td>${esc(fmtDate(p.fecha))}</td><td>${esc(p.medio||"")}${p.nota?`<div class="sub">${esc(p.nota)}</div>`:""}</td><td class="r">${$$(p.valor)}</td><td class="r">${$$(Math.max((p.valor||0)-(p.interes||0),0))}</td><td class="r"><button class="btn sm danger" data-act="borrar-pago" data-id="${p.id}" aria-label="Borrar pago">✕</button></td></tr>`).join("")}</tbody></table></div>`:`<p class="note">Aún no hay pagos registrados.</p>`}
     </div>`;
   }
   return h+`</div>`;
@@ -473,9 +480,13 @@ function formPago(deudaId){
   modal(head("Registrar pago")+`<form id="f-pago">
   <label>Deuda<select id="p-deuda">${opts(act.map(x=>[x.id,x.nombre+" · debes "+$$(debtInfo(x).saldo)]),sel)}</select></label>
   <div class="f2"><label>Valor pagado<input id="p-valor" required inputmode="numeric" value="${d&&d.cuota?Math.min(d.cuota,debtInfo(d).saldo):""}"></label><label>Fecha<input id="p-fecha" type="date" value="${today()}"></label></div>
+  <label>De eso, intereses (no bajan la deuda)<input id="p-interes" inputmode="numeric" value="${d?debtInfo(d).interesMes:0}"></label>
+  <p class="note" id="p-cap"></p>
   <div class="f2"><label>Medio de pago<select id="p-medio">${opts(MEDIOS)}</select></label><label>Nota<input id="p-nota" placeholder="Cuota, abono extra…"></label></div>
   <button class="btn pri" type="submit">Guardar pago</button></form>`);
+  updCap();
 }
+function updCap(){const el=document.getElementById("p-cap");if(!el)return;const val=num(document.getElementById("p-valor").value),int=num(document.getElementById("p-interes").value);el.textContent=val?("A la deuda le bajan "+$$(Math.max(val-int,0))+"."+(int>=val?" Con este valor solo pagas intereses.":"")):"";}
 function formGasto(id){
   const g=id?items.get(id):{cat:"variables"};
   const k=catOf(g.cat);
@@ -523,7 +534,7 @@ document.addEventListener("submit",async e=>{
   if(f.id==="f-deuda"){const id=f.dataset.id||uid("deuda");const old=items.get(id)||{};
     put(id,{...old,tipo:"deuda",id,nombre:v("d-nombre"),acreedor:v("d-acreedor"),total:num(v("d-total")),cuota:num(v("d-cuota")),tasa:decimal(v("d-tasa")),dia:Number(v("d-dia"))||null,inicio:v("d-inicio"),categoria:v("d-tipo")});
     closeModal();toast(f.dataset.id?"Deuda actualizada":"Deuda agregada");if(!f.dataset.id){tab="deudas";openDebt=id;render()}}
-  if(f.id==="f-pago"){const id=uid("pago"),dId=v("p-deuda");put(id,{tipo:"pago",id,deudaId:dId,valor:num(v("p-valor")),fecha:v("p-fecha"),medio:v("p-medio"),nota:v("p-nota")});closeModal();const s=debtInfo(items.get(dId)).saldo;toast(s===0?"¡Deuda pagada por completo!":"Pago guardado. Quedan "+$$(s))}
+  if(f.id==="f-pago"){const id=uid("pago"),dId=v("p-deuda");put(id,{tipo:"pago",id,deudaId:dId,valor:num(v("p-valor")),interes:Math.min(num(v("p-interes")),num(v("p-valor"))),fecha:v("p-fecha"),medio:v("p-medio"),nota:v("p-nota")});closeModal();const s=debtInfo(items.get(dId)).saldo;toast(s===0?"¡Deuda pagada por completo!":"Pago guardado. Quedan "+$$(s))}
   if(f.id==="f-gasto"){const id=f.dataset.id||uid("gasto");put(id,{tipo:"gasto",id,valor:num(v("g-valor")),fecha:v("g-fecha"),cat:v("g-cat"),sub:v("g-sub"),desc:v("g-desc"),medio:v("g-medio")});closeModal();toast("Gasto anotado")}
   if(f.id==="f-tarjeta"){const id=f.dataset.id||uid("tarjeta");put(id,{tipo:"tarjeta",id,nombre:v("t-nombre"),banco:v("t-banco"),cupo:num(v("t-cupo")),tasa:decimal(v("t-tasa")),deudaId:v("t-deuda")||null,saldo:num(v("t-saldo")),corte:Number(v("t-corte"))||null,pago:Number(v("t-pago"))||null,minimo:num(v("t-minimo")),manejo:num(v("t-manejo"))});closeModal();toast("Tarjeta guardada")}
   if(f.id==="f-cfg"){const c=cfg();const ppto={};CATS.forEach(k=>{const n=num(v("c-"+k.k));if(n)ppto[k.k]=n});put("config",{...c,tipo:"config",ingreso:num(v("c-ing")),usura:decimal(v("c-usura"))||28.34,alerta:Number(v("c-alerta"))||80,ppto});toast("Presupuesto guardado")}
@@ -531,8 +542,9 @@ document.addEventListener("submit",async e=>{
 document.addEventListener("change",e=>{
   if(e.target.id==="g-cat"){document.getElementById("g-sub").innerHTML=opts(catOf(e.target.value).subs)}
   if(e.target.id==="t-deuda"){document.getElementById("t-saldo-l").hidden=!!e.target.value}
-  if(e.target.id==="p-deuda"){const d=items.get(e.target.value);if(d&&d.cuota)document.getElementById("p-valor").value=Math.min(d.cuota,debtInfo(d).saldo)}
+  if(e.target.id==="p-deuda"){const d=items.get(e.target.value);if(d){const i=debtInfo(d);if(d.cuota)document.getElementById("p-valor").value=d.cuota;document.getElementById("p-interes").value=i.interesMes;updCap()}}
 });
+document.addEventListener("input",e=>{if(e.target.id==="p-valor"||e.target.id==="p-interes")updCap()});
 document.addEventListener("keydown",e=>{
   if(e.key==="Escape")closeModal();
   if((e.key==="Enter"||e.key===" ")&&e.target.matches&&e.target.matches('[data-act="toggle"]')){e.preventDefault();e.target.click()}
