@@ -294,6 +294,14 @@ function debtInfo(d){
   let tasa=null; if(d.tasa){tasa=d.tasa>c.usura?"Supera la usura":d.tasa>=c.usura*c.alerta/100?"Tasa alta":"Normal"}
   return {pagado,saldo,avance,estado,faltan,fin,dias,pagoMes,tasa,intereses,interesMes,soloInteres};
 }
+function fijoInfo(f,mk){
+  mk=mk||month;
+  const pagos=byTipo("gasto").filter(g=>g.fijoId===f.id&&(g.fecha||"").slice(0,7)===mk);
+  const pagado=pagos.reduce((s,g)=>s+(g.valor||0),0);
+  let dias=null;
+  if(!pagos.length&&f.dia&&mk===ym(new Date())){const t=new Date();t.setHours(0,0,0,0);const y=t.getFullYear(),m=t.getMonth()+1;dias=Math.round((new Date(y,m-1,Math.min(f.dia,daysIn(y,m)))-t)/864e5)}
+  return {pagos,pagado,listo:pagos.length>0,dias};
+}
 function tasaMes(ea){return ea?Math.pow(1+ea/100,1/12)-1:0}
 function estadoCls(e){return {"Pagada":"good","Casi termina":"good","En camino":"warn","Lejos":"bad"}[e]||"neutral"}
 function tasaCls(t){return t==="Supera la usura"?"bad":t==="Tasa alta"?"high":"good"}
@@ -342,7 +350,8 @@ function vInicio(){
 
   // alertas de pago
   const urg=debts.filter(x=>x.i.dias!=null&&x.i.dias<=7).sort((a,b)=>a.i.dias-b.i.dias);
-  if(urg.length){h+=`<section><div class="sec-h"><h2>Pagos que se acercan</h2></div><div class="list">${urg.map(x=>`<div class="card row"><div><div class="name">${esc(x.d.nombre)}</div><div class="sub">Cuota ${$$(x.d.cuota)}</div></div><div style="display:grid;gap:6px;justify-items:end"><span class="pill ${diasCls(x.i.dias)}">${diasTxt(x.i.dias)}</span><button class="btn sm pri" data-act="pagar" data-id="${x.d.id}">Registrar pago</button></div></div>`).join("")}</div></section>`}
+  const fUrg=month===ym(new Date())?byTipo("fijo").map(f=>({f,i:fijoInfo(f)})).filter(x=>!x.i.listo&&x.i.dias!=null&&x.i.dias<=7).sort((a,b)=>a.i.dias-b.i.dias):[];
+  if(urg.length||fUrg.length){h+=`<section><div class="sec-h"><h2>Pagos que se acercan</h2></div><div class="list">${fUrg.map(x=>`<div class="card row"><div><div class="name">${esc(x.f.nombre)}</div><div class="sub">Cuenta fija · ${$$(x.f.valor)}</div></div><div style="display:grid;gap:6px;justify-items:end"><span class="pill ${diasCls(x.i.dias)}">${diasTxt(x.i.dias)}</span><button class="btn sm pri" data-act="pagar-fijo" data-id="${x.f.id}">Pagar</button></div></div>`).join("")}${urg.map(x=>`<div class="card row"><div><div class="name">${esc(x.d.nombre)}</div><div class="sub">Cuota ${$$(x.d.cuota)}</div></div><div style="display:grid;gap:6px;justify-items:end"><span class="pill ${diasCls(x.i.dias)}">${diasTxt(x.i.dias)}</span><button class="btn sm pri" data-act="pagar" data-id="${x.d.id}">Registrar pago</button></div></div>`).join("")}</div></section>`}
 
   // 50/30/20
   const sumB=b=>gm.filter(g=>catOf(g.cat).b===b).reduce((s,g)=>s+(g.valor||0),0);
@@ -403,6 +412,12 @@ function vGastos(){
   const total=gm.reduce((s,g)=>s+(g.valor||0),0);
   let h=`<div class="top"><div><div class="lbl">Día a día</div><h1>Gastos</h1></div>${monthPicker()}</div>`;
   h+=`<div class="card row" style="margin-bottom:10px"><div><div class="lbl">Total del mes</div><div class="amt" style="font-size:1.3rem">${$$(total)}</div></div><button class="btn pri" data-act="nuevo-gasto">Anotar gasto</button></div>`;
+  const fijos=byTipo("fijo").sort((a,b)=>(a.dia||99)-(b.dia||99));
+  const fTot=fijos.reduce((s,f)=>s+(f.valor||0),0), fPend=fijos.filter(f=>!fijoInfo(f).listo);
+  h+=`<section style="margin-top:0;margin-bottom:14px"><div class="sec-h"><h2>Cuentas fijas del mes</h2><button class="btn sm" data-act="nuevo-fijo">Agregar</button></div>`;
+  if(!fijos.length) h+=`<div class="card empty"><p>Servicios, planes de celular, arriendo, internet: lo que se paga todos los meses. Agrégalos una vez y cada mes solo marcas cuáles pagaste.</p><button class="btn pri" data-act="nuevo-fijo">Agregar cuenta fija</button></div>`;
+  else h+=`<div class="card list"><div class="row"><span class="sub">${fijos.length-fPend.length} de ${fijos.length} pagadas</span><span class="sub">Faltan <b>${$$(fPend.reduce((s,f)=>s+(f.valor||0),0))}</b> de ${$$(fTot)}</span></div>${fijos.map(f=>{const i=fijoInfo(f);const k=catOf(f.cat);return `<div class="row"><div><div class="name"><span class="cat-dot" style="background:${k.c}"></span>${esc(f.nombre)}</div><div class="sub">${$$(f.valor)}${f.dia?" · día "+f.dia:""}${i.listo?" · pagaste "+$$(i.pagado):""}</div></div><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">${i.listo?`<span class="pill good">Pagada</span>`:`${i.dias!=null?`<span class="pill ${diasCls(i.dias)}">${diasTxt(i.dias)}</span>`:`<span class="pill neutral">Pendiente</span>`}<button class="btn sm pri" data-act="pagar-fijo" data-id="${f.id}">Pagar</button>`}<button class="btn sm" data-act="editar-fijo" data-id="${f.id}" aria-label="Editar">✎</button></div></div>`}).join("")}</div>`;
+  h+=`</section>`;
   const hormiga=gm.filter(g=>g.cat==="hormiga");
   if(hormiga.length){const s=hormiga.reduce((a,g)=>a+(g.valor||0),0);h+=`<div class="banner warn" style="margin-bottom:10px">Gastos hormiga este mes: <b>${$$(s)}</b> en ${hormiga.length} compra${hormiga.length>1?"s":""}. Al año serían unos ${$$(s*12)}.</div>`}
   if(!gm.length) return h+`<div class="card empty"><h3>Nada anotado en ${esc(monthName(month))}</h3><p>Anota mercado, servicios, tintos, domicilios y salidas. Así ves a dónde se va la plata.</p></div>`;
@@ -459,6 +474,7 @@ const head=(t)=>`<div class="row"><h2>${t}</h2><button class="btn sm" data-act="
 
 function formChoice(){modal(head("¿Qué quieres anotar?")+`<div class="choice">
  <button class="btn" data-act="nuevo-gasto"><b>Un gasto</b><span class="sub">Mercado, servicios, tinto, domicilio, salida</span></button>
+ <button class="btn" data-act="nuevo-fijo"><b>Una cuenta fija</b><span class="sub">Servicios, planes, arriendo: se repite cada mes</span></button>
  <button class="btn" data-act="pagar"><b>Un pago a una deuda</b><span class="sub">Cuota o abono; el saldo se descuenta solo</span></button>
  <button class="btn" data-act="nueva-deuda"><b>Una deuda nueva</b><span class="sub">Préstamo, crédito, fiado, tarjeta</span></button>
  <button class="btn" data-act="nueva-tarjeta"><b>Una tarjeta de crédito</b><span class="sub">Cupo, corte y día de pago</span></button></div>`)}
@@ -487,6 +503,22 @@ function formPago(deudaId){
   updCap();
 }
 function updCap(){const el=document.getElementById("p-cap");if(!el)return;const val=num(document.getElementById("p-valor").value),int=num(document.getElementById("p-interes").value);el.textContent=val?("A la deuda le bajan "+$$(Math.max(val-int,0))+"."+(int>=val?" Con este valor solo pagas intereses.":"")):"";}
+function formFijo(id){
+  const f=id?items.get(id):{cat:"fijos"};
+  const k=catOf(f.cat);
+  modal(head(id?"Editar cuenta fija":"Nueva cuenta fija")+`<form id="f-fijo" data-id="${id||""}">
+  <label>Nombre<input id="x-nombre" required value="${esc(f.nombre||"")}" placeholder="Ej: Gas Santa Marta"></label>
+  <div class="f2"><label>Valor al mes<input id="x-valor" required inputmode="numeric" value="${f.valor||""}"></label><label>Día de pago (1 a 31)<input id="x-dia" type="number" min="1" max="31" value="${f.dia||""}"></label></div>
+  <div class="f2"><label>Categoría<select id="g-cat">${opts(CATS.map(c=>[c.k,c.n]),f.cat)}</select></label><label>Tipo<select id="g-sub">${opts(k.subs,f.sub)}</select></label></div>
+  <div class="btns"><button class="btn pri" type="submit">${id?"Guardar":"Agregar"}</button>${id?`<button class="btn danger" type="button" data-act="borrar-fijo" data-id="${id}">Eliminar</button>`:""}</div></form>`);
+}
+function formPagoFijo(id){
+  const f=items.get(id);
+  modal(head("Pagar "+esc(f.nombre))+`<form id="f-pagofijo" data-id="${id}">
+  <div class="f2"><label>Valor pagado<input id="g-valor" required inputmode="numeric" value="${f.valor||""}"></label><label>Fecha<input id="g-fecha" type="date" value="${month===ym(new Date())?today():month+"-01"}"></label></div>
+  <label>Medio de pago<select id="g-medio">${opts(MEDIOS)}</select></label>
+  <button class="btn pri" type="submit">Marcar como pagada</button></form>`);
+}
 function formGasto(id){
   const g=id?items.get(id):{cat:"variables"};
   const k=catOf(g.cat);
@@ -535,7 +567,9 @@ document.addEventListener("submit",async e=>{
     put(id,{...old,tipo:"deuda",id,nombre:v("d-nombre"),acreedor:v("d-acreedor"),total:num(v("d-total")),cuota:num(v("d-cuota")),tasa:decimal(v("d-tasa")),dia:Number(v("d-dia"))||null,inicio:v("d-inicio"),categoria:v("d-tipo")});
     closeModal();toast(f.dataset.id?"Deuda actualizada":"Deuda agregada");if(!f.dataset.id){tab="deudas";openDebt=id;render()}}
   if(f.id==="f-pago"){const id=uid("pago"),dId=v("p-deuda");put(id,{tipo:"pago",id,deudaId:dId,valor:num(v("p-valor")),interes:Math.min(num(v("p-interes")),num(v("p-valor"))),fecha:v("p-fecha"),medio:v("p-medio"),nota:v("p-nota")});closeModal();const s=debtInfo(items.get(dId)).saldo;toast(s===0?"¡Deuda pagada por completo!":"Pago guardado. Quedan "+$$(s))}
-  if(f.id==="f-gasto"){const id=f.dataset.id||uid("gasto");put(id,{tipo:"gasto",id,valor:num(v("g-valor")),fecha:v("g-fecha"),cat:v("g-cat"),sub:v("g-sub"),desc:v("g-desc"),medio:v("g-medio")});closeModal();toast("Gasto anotado")}
+  if(f.id==="f-fijo"){const id=f.dataset.id||uid("fijo");put(id,{tipo:"fijo",id,nombre:v("x-nombre"),valor:num(v("x-valor")),dia:Number(v("x-dia"))||null,cat:v("g-cat"),sub:v("g-sub")});closeModal();toast("Cuenta fija guardada");return}
+  if(f.id==="f-pagofijo"){const fx=items.get(f.dataset.id),id=uid("gasto");put(id,{tipo:"gasto",id,fijoId:fx.id,valor:num(v("g-valor")),fecha:v("g-fecha"),cat:fx.cat,sub:fx.sub,desc:fx.nombre,medio:v("g-medio")});closeModal();toast(fx.nombre+" pagada");return}
+  if(f.id==="f-gasto"){const id=f.dataset.id||uid("gasto");put(id,{...(items.get(id)||{}),tipo:"gasto",id,valor:num(v("g-valor")),fecha:v("g-fecha"),cat:v("g-cat"),sub:v("g-sub"),desc:v("g-desc"),medio:v("g-medio")});closeModal();toast("Gasto anotado")}
   if(f.id==="f-tarjeta"){const id=f.dataset.id||uid("tarjeta");put(id,{tipo:"tarjeta",id,nombre:v("t-nombre"),banco:v("t-banco"),cupo:num(v("t-cupo")),tasa:decimal(v("t-tasa")),deudaId:v("t-deuda")||null,saldo:num(v("t-saldo")),corte:Number(v("t-corte"))||null,pago:Number(v("t-pago"))||null,minimo:num(v("t-minimo")),manejo:num(v("t-manejo"))});closeModal();toast("Tarjeta guardada")}
   if(f.id==="f-cfg"){const c=cfg();const ppto={};CATS.forEach(k=>{const n=num(v("c-"+k.k));if(n)ppto[k.k]=n});put("config",{...c,tipo:"config",ingreso:num(v("c-ing")),usura:decimal(v("c-usura"))||28.34,alerta:Number(v("c-alerta"))||80,ppto});toast("Presupuesto guardado")}
 });
@@ -564,6 +598,10 @@ document.addEventListener("click",e=>{
     case"editar-deuda":formDeuda(id);break;
     case"pagar":formPago(id);break;
     case"nuevo-gasto":formGasto();break;
+    case"nuevo-fijo":formFijo();break;
+    case"editar-fijo":formFijo(id);break;
+    case"pagar-fijo":formPagoFijo(id);break;
+    case"borrar-fijo":confirmBox("¿Eliminar esta cuenta fija? Los pagos que ya anotaste se quedan en Gastos.",()=>{del(id);toast("Cuenta fija eliminada")});break;
     case"editar-gasto":formGasto(id);break;
     case"nueva-tarjeta":formTarjeta();break;
     case"editar-tarjeta":formTarjeta(id);break;
