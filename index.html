@@ -129,7 +129,8 @@ const CATS=[
  {k:"imprevistos",n:"Imprevistos",b:"nec",c:"#B3261E",subs:["Reparaciones urgentes","Emergencias médicas","Multas y trámites","Otros imprevistos"]}
 ];
 const TIPOS=["Tarjeta de crédito","Préstamo libre inversión","Crédito de vivienda","Crédito de vehículo o moto","Libranza","Crédito de almacén","Préstamo de familiar o amigo","Crédito educativo (ICETEX)","Préstamo informal (gota a gota)","Fiado en tienda","Otro"];
-const MEDIOS=["Efectivo","Nequi","Daviplata","Transferencia","Tarjeta débito","Tarjeta de crédito","PSE","Otro"];
+const NOMINA="Descuento de nómina";
+const MEDIOS=[NOMINA,"Efectivo","Nequi","Daviplata","Transferencia","Tarjeta débito","Tarjeta de crédito","PSE","Otro"];
 const SUG={fijos:.30,variables:.15,imprevistos:.05,hormiga:.05,salidas:.10,ahorro:.10};
 const DEF_CFG={tipo:"config",ingreso:0,usura:28.34,alerta:80,ppto:{}};
 
@@ -313,7 +314,8 @@ function budCls(g,p,al){if(!p)return g>0?"high":"neutral";if(g>p)return"bad";if(
 function budTxt(g,p,al){if(!p)return g>0?"Sin presupuesto":"—";if(g>p)return"Te pasaste";if(g>=p*al)return"Cerca del tope";return"Bien"}
 function barCls(c){return {good:"g",warn:"w",high:"h",bad:"b",neutral:"a"}[c]}
 function gastosMes(){return byTipo("gasto").filter(g=>(g.fecha||"").slice(0,7)===month)}
-function pagosMes(){return byTipo("pago").filter(p=>(p.fecha||"").slice(0,7)===month)}
+function pagosMes(){return byTipo("pago").filter(p=>(p.fecha||"").slice(0,7)===month&&p.medio!==NOMINA)}
+function nominaMes(){return byTipo("pago").filter(p=>(p.fecha||"").slice(0,7)===month&&p.medio===NOMINA)}
 function tarjetaSaldo(t){if(t.deudaId){const d=items.get(t.deudaId);if(d)return debtInfo(d).saldo}return t.saldo||0}
 
 // ---------- vistas ----------
@@ -338,7 +340,7 @@ function vInicio(){
   const debts=byTipo("deuda").map(d=>({d,i:debtInfo(d)}));
   const totalDeuda=debts.reduce((s,x)=>s+(x.d.total||0),0), saldoTotal=debts.reduce((s,x)=>s+x.i.saldo,0);
   const avance=totalDeuda?(totalDeuda-saldoTotal)/totalDeuda:0;
-  const cuotas=debts.filter(x=>x.i.saldo>0).reduce((s,x)=>s+(x.d.cuota||0),0);
+  const cuotas=debts.filter(x=>x.i.saldo>0&&!x.d.nomina).reduce((s,x)=>s+(x.d.cuota||0),0);
   const endeud=c.ingreso?cuotas/c.ingreso:0;
   const usedPct=c.ingreso?Math.min(salio/c.ingreso,1):0;
 
@@ -349,7 +351,7 @@ function vInicio(){
    <div class="hero-row"><div><div class="lbl">Ingreso</div><b>${$$(c.ingreso)}</b></div><div><div class="lbl">Gastos</div><b>${$$(gastado)}</b></div><div><div class="lbl">Pagos a deudas</div><b>${$$(pagadoMes)}</b></div></div></div>`;
 
   // alertas de pago
-  const urg=debts.filter(x=>x.i.dias!=null&&x.i.dias<=7).sort((a,b)=>a.i.dias-b.i.dias);
+  const urg=debts.filter(x=>!x.d.nomina&&x.i.dias!=null&&x.i.dias<=7).sort((a,b)=>a.i.dias-b.i.dias);
   const fUrg=month===ym(new Date())?byTipo("fijo").map(f=>({f,i:fijoInfo(f)})).filter(x=>!x.i.listo&&x.i.dias!=null&&x.i.dias<=7).sort((a,b)=>a.i.dias-b.i.dias):[];
   if(urg.length||fUrg.length){h+=`<section><div class="sec-h"><h2>Pagos que se acercan</h2></div><div class="list">${fUrg.map(x=>`<div class="card row"><div><div class="name">${esc(x.f.nombre)}</div><div class="sub">Cuenta fija · ${$$(x.f.valor)}</div></div><div style="display:grid;gap:6px;justify-items:end"><span class="pill ${diasCls(x.i.dias)}">${diasTxt(x.i.dias)}</span><button class="btn sm pri" data-act="pagar-fijo" data-id="${x.f.id}">Pagar</button></div></div>`).join("")}${urg.map(x=>`<div class="card row"><div><div class="name">${esc(x.d.nombre)}</div><div class="sub">Cuota ${$$(x.d.cuota)}</div></div><div style="display:grid;gap:6px;justify-items:end"><span class="pill ${diasCls(x.i.dias)}">${diasTxt(x.i.dias)}</span><button class="btn sm pri" data-act="pagar" data-id="${x.d.id}">Registrar pago</button></div></div>`).join("")}</div></section>`}
 
@@ -369,7 +371,7 @@ function vInicio(){
   // deudas resumen
   h+=`<section><div class="sec-h"><h2>Mis deudas</h2><button class="btn sm" data-tab="deudas">Ver todas</button></div>`;
   if(!debts.length) h+=`<div class="card empty"><p>Todavía no has agregado deudas.</p><button class="btn pri" data-act="nueva-deuda">Agregar una deuda</button></div>`;
-  else h+=`<div class="card" style="display:grid;gap:10px"><div class="grid2"><div class="kv"><span class="lbl">Saldo pendiente</span><b>${$$(saldoTotal)}</b></div><div class="kv"><span class="lbl">Ya pagado</span><b>${$$(totalDeuda-saldoTotal)}</b></div><div class="kv"><span class="lbl">Cuotas al mes</span><b>${$$(cuotas)}</b></div><div class="kv"><span class="lbl">Del ingreso en cuotas</span><b>${c.ingreso?pct(endeud):"—"} <span class="pill ${!c.ingreso?"neutral":endeud<=.3?"good":"bad"}">${!c.ingreso?"—":endeud<=.3?"Sano":"Alto"}</span></b></div></div><div class="row"><span class="sub">Avance general</span><b>${pct(avance)}</b></div><div class="bar"><i class="g" style="width:${avance*100}%"></i></div></div>`;
+  else h+=`<div class="card" style="display:grid;gap:10px"><div class="grid2"><div class="kv"><span class="lbl">Saldo pendiente</span><b>${$$(saldoTotal)}</b></div><div class="kv"><span class="lbl">Ya pagado</span><b>${$$(totalDeuda-saldoTotal)}</b></div><div class="kv"><span class="lbl">Cuotas que pagas tú</span><b>${$$(cuotas)}</b></div><div class="kv"><span class="lbl">Del ingreso en cuotas</span><b>${c.ingreso?pct(endeud):"—"} <span class="pill ${!c.ingreso?"neutral":endeud<=.3?"good":"bad"}">${!c.ingreso?"—":endeud<=.3?"Sano":"Alto"}</span></b></div></div>${debts.some(x=>x.d.nomina)?`<p class="note">Las cuotas por nómina (${$$(debts.filter(x=>x.d.nomina&&x.i.saldo>0).reduce((s,x)=>s+(x.d.cuota||0),0))} al mes) ya vienen descontadas del ingreso.</p>`:""}<div class="row"><span class="sub">Avance general</span><b>${pct(avance)}</b></div><div class="bar"><i class="g" style="width:${avance*100}%"></i></div></div>`;
   h+=`</section>`;
   return h;
 }
@@ -382,7 +384,7 @@ function debtCard(d){
   let h=`<div class="card debt" data-state="${i.estado}" role="button" tabindex="0" data-act="toggle" data-id="${d.id}" aria-expanded="${open}">
    <div class="row"><div><div class="name">${esc(d.nombre)}</div><div class="sub">${esc(d.categoria||"")}${d.acreedor?" · "+esc(d.acreedor):""}</div></div><div style="text-align:right"><div class="amt">${$$(i.saldo)}</div><div class="sub">de ${$$(d.total)}</div></div></div>
    <div class="bar"><i class="${barCls(estadoCls(i.estado))}" style="width:${i.avance*100}%"></i></div>
-   <div class="chips"><span class="pill ${estadoCls(i.estado)}">${i.estado} · ${pct(i.avance)}</span>${i.saldo>0?`<span class="pill ${pesoCls}">${pct(peso)} de lo que debo</span>`:""}${i.dias!=null?`<span class="pill ${diasCls(i.dias)}">${diasTxt(i.dias)}</span>`:""}${i.tasa?`<span class="pill ${tasaCls(i.tasa)}">${i.tasa} ${String(d.tasa).replace(".",",")}% E.A.</span>`:""}</div>`;
+   <div class="chips"><span class="pill ${estadoCls(i.estado)}">${i.estado} · ${pct(i.avance)}</span>${i.saldo>0?`<span class="pill ${pesoCls}">${pct(peso)} de lo que debo</span>`:""}${d.nomina?`<span class="pill neutral">Descuento de nómina</span>`:i.dias!=null?`<span class="pill ${diasCls(i.dias)}">${diasTxt(i.dias)}</span>`:""}${i.tasa?`<span class="pill ${tasaCls(i.tasa)}">${i.tasa} ${String(d.tasa).replace(".",",")}% E.A.</span>`:""}</div>`;
   if(open){
     const ps=pagosDe(d.id).sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||""));
     h+=`<div class="detail" data-stop>
@@ -487,6 +489,7 @@ function formDeuda(id){
   <div class="f2"><label>Valor total<input id="d-total" required inputmode="numeric" value="${d.total||""}"></label><label>Cuota mensual<input id="d-cuota" inputmode="numeric" value="${d.cuota||""}"></label></div>
   <div class="f2"><label>Tasa de interés (% E.A.)<input id="d-tasa" inputmode="decimal" value="${d.tasa?String(d.tasa).replace(".",","):""}" placeholder="Ej: 27"></label><label>Día de pago (1 a 31)<input id="d-dia" type="number" min="1" max="31" value="${d.dia||""}"></label></div>
   <label>Fecha en que empezó<input id="d-inicio" type="date" value="${d.inicio||today()}"></label>
+  <label style="display:flex;gap:8px;align-items:center;font-weight:600"><input id="d-nomina" type="checkbox" style="width:auto" ${d.nomina?"checked":""}> Se descuenta automático de la nómina</label>
   <button class="btn pri" type="submit">${id?"Guardar cambios":"Agregar deuda"}</button></form>`);
 }
 function formPago(deudaId){
@@ -498,7 +501,7 @@ function formPago(deudaId){
   <div class="f2"><label>Valor pagado<input id="p-valor" required inputmode="numeric" value="${d&&d.cuota?Math.min(d.cuota,debtInfo(d).saldo):""}"></label><label>Fecha<input id="p-fecha" type="date" value="${today()}"></label></div>
   <label>De eso, intereses (no bajan la deuda)<input id="p-interes" inputmode="numeric" value="${d?debtInfo(d).interesMes:0}"></label>
   <p class="note" id="p-cap"></p>
-  <div class="f2"><label>Medio de pago<select id="p-medio">${opts(MEDIOS)}</select></label><label>Nota<input id="p-nota" placeholder="Cuota, abono extra…"></label></div>
+  <div class="f2"><label>Medio de pago<select id="p-medio">${opts(MEDIOS,d&&d.nomina?NOMINA:"Efectivo")}</select></label><label>Nota<input id="p-nota" placeholder="Cuota, abono extra…"></label></div>
   <button class="btn pri" type="submit">Guardar pago</button></form>`);
   updCap();
 }
@@ -564,7 +567,7 @@ document.addEventListener("submit",async e=>{
   if(f.id==="f-invitar"){const em=v("i-email").toLowerCase();try{await updateDoc(doc(fs,"hogares",hogarId),{invitados:arrayUnion(em)});toast("Invitación lista. Mándale el enlace.");}catch(err){handleErr(err)}return}
   if(readOnly){toast("No tienes permiso para guardar aquí");return}
   if(f.id==="f-deuda"){const id=f.dataset.id||uid("deuda");const old=items.get(id)||{};
-    put(id,{...old,tipo:"deuda",id,nombre:v("d-nombre"),acreedor:v("d-acreedor"),total:num(v("d-total")),cuota:num(v("d-cuota")),tasa:decimal(v("d-tasa")),dia:Number(v("d-dia"))||null,inicio:v("d-inicio"),categoria:v("d-tipo")});
+    put(id,{...old,tipo:"deuda",id,nombre:v("d-nombre"),acreedor:v("d-acreedor"),total:num(v("d-total")),cuota:num(v("d-cuota")),tasa:decimal(v("d-tasa")),dia:Number(v("d-dia"))||null,inicio:v("d-inicio"),nomina:document.getElementById("d-nomina").checked,categoria:v("d-tipo")});
     closeModal();toast(f.dataset.id?"Deuda actualizada":"Deuda agregada");if(!f.dataset.id){tab="deudas";openDebt=id;render()}}
   if(f.id==="f-pago"){const id=uid("pago"),dId=v("p-deuda");put(id,{tipo:"pago",id,deudaId:dId,valor:num(v("p-valor")),interes:Math.min(num(v("p-interes")),num(v("p-valor"))),fecha:v("p-fecha"),medio:v("p-medio"),nota:v("p-nota")});closeModal();const s=debtInfo(items.get(dId)).saldo;toast(s===0?"¡Deuda pagada por completo!":"Pago guardado. Quedan "+$$(s))}
   if(f.id==="f-fijo"){const id=f.dataset.id||uid("fijo");put(id,{tipo:"fijo",id,nombre:v("x-nombre"),valor:num(v("x-valor")),dia:Number(v("x-dia"))||null,cat:v("g-cat"),sub:v("g-sub")});closeModal();toast("Cuenta fija guardada");return}
