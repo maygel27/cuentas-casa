@@ -303,7 +303,8 @@ function fijoInfo(f,mk){
   if(!pagos.length&&f.dia&&mk===ym(new Date())){const t=new Date();t.setHours(0,0,0,0);const y=t.getFullYear(),m=t.getMonth()+1;dias=Math.round((new Date(y,m-1,Math.min(f.dia,daysIn(y,m)))-t)/864e5)}
   return {pagos,pagado,listo:pagos.length>0,dias};
 }
-function atrasadas(){const prev=shiftMonth(month,-1);return byTipo("fijo").filter(f=>(!f.desde||f.desde<=prev)&&!fijoInfo(f,prev).listo).map(f=>({f,mes:prev}))}
+function inicioApp(){const ms=byTipo("gasto").filter(g=>g.fijoId).map(g=>g.periodo||(g.fecha||"").slice(0,7)).concat(byTipo("fijo").map(f=>f.desde).filter(Boolean)).filter(Boolean).sort();return ms[0]||ym(new Date())}
+function atrasadas(){const prev=shiftMonth(month,-1);if(prev<inicioApp())return [];return byTipo("fijo").filter(f=>(!f.desde||f.desde<=prev)&&!fijoInfo(f,prev).listo).map(f=>({f,mes:prev}))}
 function tasaMes(ea){return ea?Math.pow(1+ea/100,1/12)-1:0}
 function estadoCls(e){return {"Pagada":"good","Casi termina":"good","En camino":"warn","Lejos":"bad"}[e]||"neutral"}
 function tasaCls(t){return t==="Supera la usura"?"bad":t==="Tasa alta"?"high":"good"}
