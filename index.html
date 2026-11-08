@@ -83,7 +83,7 @@ section{margin-top:22px;display:grid;gap:10px}
 .note{font-size:.85rem;color:var(--muted);margin:0}
 .banner{border-radius:12px;padding:10px 12px;font-size:.9rem}
 nav.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);display:flex;justify-content:center;padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);z-index:5}
-nav.tabs .in{display:grid;grid-template-columns:repeat(5,1fr);width:100%;max-width:760px}
+nav.tabs .in{display:grid;grid-template-columns:repeat(6,1fr);width:100%;max-width:760px}
 nav.tabs button{border:0;background:transparent;color:var(--muted);font:inherit;font-size:.74rem;font-weight:600;padding:9px 2px 10px;display:grid;justify-items:center;gap:3px;cursor:pointer}
 nav.tabs button svg{width:22px;height:22px}
 nav.tabs button[aria-current="page"]{color:var(--accent)}
@@ -322,13 +322,14 @@ function tarjetaSaldo(t){if(t.deudaId){const d=items.get(t.deudaId);if(d)return 
 
 // ---------- vistas ----------
 const ICONS={
+ plan:'<path d="M4 19h16"/><path d="M6 15l4-4 3 3 5-6"/><path d="M15 8h3v3"/>',
  inicio:'<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
  deudas:'<path d="M4 6h16M4 12h16M4 18h10"/><circle cx="19" cy="18" r="2"/>',
  gastos:'<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
  tarjetas:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/>',
  ajustes:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'
 };
-const TABS=[["inicio","Inicio"],["deudas","Deudas"],["gastos","Gastos"],["tarjetas","Tarjetas"],["ajustes","Presupuesto"]];
+const TABS=[["inicio","Inicio"],["plan","Plan"],["deudas","Deudas"],["gastos","Gastos"],["tarjetas","Tarjetas"],["ajustes","Ajustes"]];
 function renderTabs(){
   document.getElementById("tabs").innerHTML=TABS.map(([k,n])=>`<button data-tab="${k}" ${tab===k?'aria-current="page"':""}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[k]}</svg>${n}</button>`).join("");
 }
@@ -474,8 +475,69 @@ function render(){
   let h=readOnly?`<div class="banner bad" style="margin-bottom:10px">No tienes permiso para ver o editar este hogar. Pide que te inviten con tu correo.</div>`:"";
   h+=slow?`<div class="banner warn" style="margin-bottom:10px">No se pudo conectar todavía. Lo que ves puede no estar al día.</div>`:"";
   if(!byTipo("deuda").length&&!byTipo("gasto").length&&tab==="inicio") h+=`<div class="card" style="display:grid;gap:10px;margin-bottom:14px"><h2>Bienvenida</h2><p class="note">1. En <b>Presupuesto</b> escribe el ingreso del hogar. 2. Agrega tus deudas. 3. Cada vez que pagues o gastes, toca el botón <b>+</b>. Si quieres ver cómo se ve, carga un ejemplo y luego lo borras.</p><div class="btns"><button class="btn pri" data-act="nueva-deuda">Agregar mi primera deuda</button><button class="btn" data-act="cargar-ejemplo">Ver con un ejemplo</button></div></div>`;
-  h+=({inicio:vInicio,deudas:vDeudas,gastos:vGastos,tarjetas:vTarjetas,ajustes:vAjustes})[tab]();
+  h+=({inicio:vInicio,plan:vPlan,deudas:vDeudas,gastos:vGastos,tarjetas:vTarjetas,ajustes:vAjustes})[tab]();
   app.innerHTML=h;
+}
+
+
+// ---------- plan para salir de deudas (método avalancha) ----------
+function esInformal(d){return /informal|gota/i.test(d.categoria||"")}
+function simularPlan(presupuesto){
+  const ds=byTipo("deuda").filter(d=>!d.nomina).map(d=>{const i=debtInfo(d);return {d,saldo:i.saldo,r:tasaMes(d.tasa),informal:esInformal(d)}}).filter(x=>x.saldo>0);
+  const meses=[]; let interesTotal=0, mk=ym(new Date()); const fin={};
+  for(let m=0;m<60&&ds.some(x=>x.saldo>0.5);m++){
+    const pagos={}; let disp=presupuesto, minimos=0;
+    ds.forEach(x=>{if(x.saldo<=0.5)return; const int=x.saldo*x.r; interesTotal+=int; x.saldo+=int; x._int=int});
+    ds.forEach(x=>{if(x.saldo<=0.5)return; let mn=x.informal||!x.d.cuota?x._int:Math.max(x.d.cuota,x._int); mn=Math.min(mn,x.saldo); pagos[x.d.id]=mn; x.saldo-=mn; disp-=mn; minimos+=mn});
+    if(disp<0){return {ok:false,minimos,meses,ds}}
+    [...ds].sort((a,b)=>b.r-a.r).forEach(x=>{if(disp<=0||x.saldo<=0.5)return; const p=Math.min(disp,x.saldo); pagos[x.d.id]=(pagos[x.d.id]||0)+p; x.saldo-=p; disp-=p});
+    const salen=ds.filter(x=>x.saldo<=0.5&&!fin[x.d.id]).map(x=>{fin[x.d.id]=mk;return x.d});
+    meses.push({mk,pagos,salen,sobra:disp,int:ds.reduce((s,x)=>s+(x._int||0),0)});
+    ds.forEach(x=>x._int=0); mk=shiftMonth(mk,1);
+  }
+  return {ok:true,meses,fin,interesTotal,ds};
+}
+function vPlan(){
+  const c=cfg(); const pres=Number(c.planDeudas)||4000000;
+  const todas=byTipo("deuda").map(d=>({d,i:debtInfo(d)})).filter(x=>x.i.saldo>0);
+  const propias=todas.filter(x=>!x.d.nomina), nomina=todas.filter(x=>x.d.nomina);
+  const saldoP=propias.reduce((s,x)=>s+x.i.saldo,0), intMes=propias.reduce((s,x)=>s+x.i.interesMes,0);
+  const caras=propias.filter(x=>x.d.tasa>c.usura).sort((a,b)=>b.d.tasa-a.d.tasa);
+  const prev=shiftMonth(ym(new Date()),-1);
+  const gustosPrev=byTipo("gasto").filter(g=>(g.fecha||"").slice(0,7)===prev&&["hormiga","salidas"].includes(g.cat)).reduce((s,g)=>s+(g.valor||0),0);
+  const sim=simularPlan(pres), simMas=simularPlan(pres+500000);
+  const salirInf=(sm)=>{if(!sm.ok)return null;const inf=propias.filter(x=>esInformal(x.d)).map(x=>sm.fin[x.d.id]).filter(Boolean).sort();return inf.length?inf[inf.length-1]:null};
+  const ultimo=(sm)=>sm.ok&&sm.meses.length?sm.meses[sm.meses.length-1].mk:null;
+  const mName=k=>monthName(k);
+  let h=`<div class="top"><div><div class="lbl">Cómo salir de las deudas</div><h1>Plan</h1></div></div>`;
+  if(!propias.length) return h+`<div class="card empty"><h3>No tienes deudas pendientes</h3><p>Cuando agregues deudas, aquí verás el plan para salir de ellas.</p></div>`;
+  // diagnóstico
+  h+=`<section style="margin-top:0"><h2>Diagnóstico</h2><div class="card list">
+   <div class="row"><div><div class="name">Deben (lo que pagan ustedes)</div><div class="sub">${propias.length} deudas${nomina.length?` · más ${nomina.length} por nómina`:""}</div></div><span class="amt">${$$(saldoP)}</span></div>
+   <div class="row"><div><div class="name">Se van en intereses cada mes</div><div class="sub">${c.ingreso?pct(intMes/c.ingreso)+" del ingreso esperado, sin bajar la deuda":"plata que no baja la deuda"}</div></div><span class="pill bad">${$$(intMes)}</span></div>
+   ${caras.length?`<div class="row"><div><div class="name">Deudas por encima de la usura</div><div class="sub">${caras.map(x=>esc(x.d.nombre)).join(", ")}</div></div><span class="pill bad">${caras.length}</span></div>`:""}
+   ${gustosPrev?`<div class="row"><div><div class="name">Gustos y hormiga en ${esc(mName(prev).split(" ")[0])}</div><div class="sub">Hormiga y salidas anotados</div></div><span class="pill warn">${$$(gustosPrev)}</span></div>`:""}
+   <p class="note">${caras.length?`Lo más urgente: <b>${esc(caras[0].d.nombre)}</b>, que cobra ${String(Math.round(tasaMes(caras[0].d.tasa)*1000)/10).replace(".",",")} % al mes. `:""}La estrategia es la <b>avalancha</b>: pagar lo mínimo en todas y meter toda la plata que sobre en la deuda que cobra más interés. Cuando esa se acaba, su plata pasa a la siguiente.</p>
+  </div></section>`;
+  // presupuesto del plan
+  h+=`<section><h2>¿Cuánto van a dedicar a deudas cada mes?</h2><form class="card" id="f-plan" style="display:grid;gap:8px"><label>Plata para deudas al mes (sin contar las de nómina)<input id="pl-pres" inputmode="numeric" value="${pres}"></label><button class="btn pri" type="submit">Recalcular el plan</button>${c.ingreso?`<p class="note">Con un ingreso esperado de ${$$(c.ingreso)}, fijos de ${$$(Number(c.ppto.fijos)||0)} y comida de ${$$(Number(c.ppto.variables)||0)}, les quedarían ${$$(c.ingreso-pres-(Number(c.ppto.fijos)||0)-(Number(c.ppto.variables)||0))} para todo lo demás.</p>`:""}</form></section>`;
+  if(!sim.ok){return h+`<div class="banner bad">Con ${$$(pres)} no alcanza ni para los mínimos (${$$(sim.minimos)} entre intereses y cuotas). Hay que subir la plata para deudas o negociar con los prestamistas.</div>`}
+  // resultado
+  const sInf=salirInf(sim), u=ultimo(sim), sInf2=salirInf(simMas), u2=ultimo(simMas);
+  h+=`<section><h2>Resultado</h2><div class="hero" style="gap:10px">
+   <div><div class="lbl">Salen de los gota a gota en</div><div class="big" style="text-transform:capitalize">${sInf?esc(mName(sInf)):"—"}</div></div>
+   <div class="hero-row" style="grid-template-columns:repeat(2,minmax(0,1fr))"><div><div class="lbl">Libres de todo</div><b style="text-transform:capitalize">${u?esc(mName(u)):"—"}</b></div><div><div class="lbl">Intereses en total</div><b>${$$(sim.interesTotal)}</b></div></div></div>
+   ${simMas.ok?`<p class="note">Si le meten <b>$500.000 más</b> al mes (lo que se va en gustos), salen de los gota a gota en <b>${sInf2?esc(mName(sInf2)):"—"}</b>, quedan libres en <b>${u2?esc(mName(u2)):"—"}</b> y se ahorran <b>${$$(sim.interesTotal-simMas.interesTotal)}</b> en intereses.</p>`:""}
+  </section>`;
+  // este mes
+  const m0=sim.meses[0];
+  const nombre=id=>{const d=items.get(id);return d?d.nombre:""};
+  const fila=(id,val,m)=>{const d=items.get(id);const sale=m.salen.some(x=>x.id===id);const r=tasaMes(d.tasa);return `<div class="row"><div><div class="name">${esc(d.nombre)}</div><div class="sub">${sale?"Se termina de pagar":esInformal(d)&&!sale&&Math.abs(val-(debtInfo(d).saldo*r))<2?"Solo intereses por ahora":"Cuota o abono"}</div></div><div style="display:flex;gap:6px;align-items:center"><span class="amt">${$$(val)}</span>${sale?`<span class="pill good">✔ Sale</span>`:""}</div></div>`};
+  h+=`<section><h2>Qué pagar en ${esc(mName(m0.mk))}</h2><div class="card list">${Object.entries(m0.pagos).sort((a,b)=>tasaMes(items.get(b[0]).tasa)-tasaMes(items.get(a[0]).tasa)).map(([id,v])=>fila(id,v,m0)).join("")}<div class="row"><span class="name">Total</span><span class="amt">${$$(Object.values(m0.pagos).reduce((a,b)=>a+b,0))}</span></div><p class="note">Pagan en este orden. Si un mes llega menos plata, cumplan primero los de "Solo intereses" y cuotas, y abonen lo que alcance a la primera de la lista.</p></div></section>`;
+  // calendario
+  h+=`<section><h2>Mes a mes</h2><div class="list">${sim.meses.map((m,k)=>`<div class="card" style="display:grid;gap:6px"><div class="row"><h3 style="text-transform:capitalize">${esc(mName(m.mk))}</h3>${m.salen.length?`<span class="pill good">Sale${m.salen.length>1?"n":""} ${m.salen.length}</span>`:`<span class="pill neutral">${$$(Object.values(m.pagos).reduce((a,b)=>a+b,0))}</span>`}</div>${m.salen.length?`<div class="sub">Terminan: <b>${m.salen.map(d=>esc(d.nombre)).join(", ")}</b></div>`:""}<div class="sub">${Object.entries(m.pagos).sort((a,b)=>b[1]-a[1]).map(([id,v])=>esc(nombre(id))+" "+$$(v)).join(" · ")}</div>${m.sobra>1?`<div class="sub">Sobran ${$$(m.sobra)}: guárdenlos como fondo de emergencia.</div>`:""}</div>`).join("")}</div></section>`;
+  h+=`<section><h2>Reglas para que funcione</h2><div class="card list"><div class="sub">1. No sacar préstamos nuevos ni avances de tarjeta mientras dure el plan.</div><div class="sub">2. No usar las tarjetas: cada pago debe bajar la deuda.</div><div class="sub">3. Cuando se acaba una deuda, su cuota pasa a la siguiente. No se gasta.</div><div class="sub">4. Todo ingreso extra va a la primera deuda de la lista.</div><div class="sub">5. Anotar cada pago en la app: el plan se recalcula solo.</div><p class="note">El plan supone que los prestamistas aceptan pagos adelantados y usa las tasas que anotaste. Es una guía para decidir, no asesoría financiera.</p></div></section>`;
+  return h;
 }
 
 // ---------- formularios ----------
@@ -596,6 +658,7 @@ document.addEventListener("submit",async e=>{
   if(f.id==="f-pagofijo"){const fx=items.get(f.dataset.id),id=uid("gasto");put(id,{tipo:"gasto",id,fijoId:fx.id,periodo:f.dataset.periodo,valor:num(v("g-valor")),fecha:v("g-fecha"),cat:fx.cat,sub:fx.sub,desc:fx.nombre,medio:v("g-medio")});closeModal();toast(fx.nombre+(f.dataset.periodo!==month?" ("+monthName(f.dataset.periodo).split(" ")[0]+")":"")+" pagada");return}
   if(f.id==="f-gasto"){const id=f.dataset.id||uid("gasto");put(id,{...(items.get(id)||{}),tipo:"gasto",id,valor:num(v("g-valor")),fecha:v("g-fecha"),cat:v("g-cat"),sub:v("g-sub"),desc:v("g-desc"),medio:v("g-medio")});closeModal();toast("Gasto anotado")}
   if(f.id==="f-tarjeta"){const id=f.dataset.id||uid("tarjeta");put(id,{tipo:"tarjeta",id,nombre:v("t-nombre"),banco:v("t-banco"),cupo:num(v("t-cupo")),tasa:decimal(v("t-tasa")),deudaId:v("t-deuda")||null,saldo:num(v("t-saldo")),corte:Number(v("t-corte"))||null,pago:Number(v("t-pago"))||null,minimo:num(v("t-minimo")),manejo:num(v("t-manejo"))});closeModal();toast("Tarjeta guardada")}
+  if(f.id==="f-plan"){put("config",{...cfg(),tipo:"config",planDeudas:num(v("pl-pres"))});toast("Plan recalculado");return}
   if(f.id==="f-cfg"){const c=cfg();const ppto={};CATS.forEach(k=>{const n=num(v("c-"+k.k));if(n)ppto[k.k]=n});put("config",{...c,tipo:"config",ingreso:num(v("c-ing")),usura:decimal(v("c-usura"))||28.34,alerta:Number(v("c-alerta"))||80,ppto});toast("Presupuesto guardado")}
 });
 document.addEventListener("change",e=>{
