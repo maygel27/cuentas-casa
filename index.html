@@ -452,7 +452,7 @@ function vAjustes(){
   let h=`<div class="top"><div><div class="lbl">Plan del mes</div><h1>Presupuesto</h1></div></div>`;
   h+=`<form class="card" id="f-cfg"><label>Ingreso esperado al mes (para calcular porcentajes)<input id="c-ing" inputmode="numeric" value="${c.ingreso?c.ingreso:""}" placeholder="Ej: 3500000"></label>
   <h3 style="margin-top:6px">Cuánto quieres gastar al mes</h3>
-  ${CATS.map(k=>`<label><span><span class="cat-dot" style="background:${k.c}"></span>${k.n}</span><input id="c-${k.k}" inputmode="numeric" value="${c.ppto[k.k]||""}" placeholder="${c.ingreso?"Sugerido "+$$(c.ingreso*SUG[k.k]):"$0"}"></label>`).join("")}
+  ${CATS.map(k=>`<label><span><span class="cat-dot" style="background:${k.c}"></span>${({fijos:"Cuentas fijas",variables:"Comida y gastos de la casa",hormiga:"Gustos y hormiga",salidas:"Salidas y paseos en familia",ahorro:"Fondo de emergencia",imprevistos:"Imprevistos (ropa, salud, arreglos)"})[k.k]||k.n}</span><input id="c-${k.k}" inputmode="numeric" value="${c.ppto[k.k]||""}" placeholder="${c.ingreso?"Sugerido "+$$(c.ingreso*SUG[k.k]):"$0"}"></label>`).join("")}
   <button class="btn" type="button" data-act="sugerir">No sé cuánto: repartir mi ingreso automático</button>
   <p class="note">Reparte con base en la regla 50/30/20: fijos 30 %, variables 15 %, imprevistos 5 %, hormiga 5 %, salidas 10 % y ahorro 10 %. El 25 % que queda libre es para las cuotas de tus deudas y un colchón. Ajusta los números cuando veas tus gastos reales y toca Guardar.</p>
   <div class="f2"><label>Tasa de usura vigente (% E.A.)<input id="c-usura" inputmode="decimal" value="${String(c.usura).replace(".",",")}"></label><label>Avisar desde (% del presupuesto o de la usura)<input id="c-alerta" inputmode="numeric" value="${c.alerta}"></label></div>
@@ -498,11 +498,15 @@ function simularPlan(presupuesto){
   return {ok:true,meses,fin,interesTotal,ds};
 }
 function vPlan(){
-  const c=cfg(); const pres=Number(c.planDeudas)||4000000;
+  const c=cfg(); const P=c.ppto||{};
+  const reparto=[["Cuentas fijas","fijos","servicios, planes, empleada, patio, patinaje"],["Comida de la familia","variables","mercado y lo de la casa"],["Salidas y paseos en familia","salidas","paseos, comer fuera, planes"],["Gustos y hormiga","hormiga","tintos, mecato, domicilios"],["Imprevistos","imprevistos","ropa, salud, arreglos, lo que salga"],["Fondo de emergencia","ahorro","por si pasa algo"]];
+  const apartado=reparto.reduce((s,r)=>s+(Number(P[r[1]])||0),0);
+  const sobra=Math.max((c.ingreso||0)-apartado,0);
+  const pres=Number(c.planDeudas)||Math.floor(sobra/10000)*10000||4000000;
   const todas=byTipo("deuda").map(d=>({d,i:debtInfo(d)})).filter(x=>x.i.saldo>0);
   const propias=todas.filter(x=>!x.d.nomina), nomina=todas.filter(x=>x.d.nomina);
   const saldoP=propias.reduce((s,x)=>s+x.i.saldo,0), intMes=propias.reduce((s,x)=>s+x.i.interesMes,0);
-  const caras=propias.filter(x=>x.d.tasa>c.usura).sort((a,b)=>b.d.tasa-a.d.tasa);
+  const caras=propias.filter(x=>x.d.tasa>(/bajo monto/i.test(x.d.nombre+" "+(x.d.categoria||""))?71.82:c.usura)).sort((a,b)=>b.d.tasa-a.d.tasa);
   const prev=shiftMonth(ym(new Date()),-1);
   const gustosPrev=byTipo("gasto").filter(g=>(g.fecha||"").slice(0,7)===prev&&["hormiga","salidas"].includes(g.cat)).reduce((s,g)=>s+(g.valor||0),0);
   const sim=simularPlan(pres), simMas=simularPlan(pres+500000);
@@ -520,7 +524,13 @@ function vPlan(){
    <p class="note">${caras.length?`Lo más urgente: <b>${esc(caras[0].d.nombre)}</b>, que cobra ${String(Math.round(tasaMes(caras[0].d.tasa)*1000)/10).replace(".",",")} % al mes. `:""}La estrategia es la <b>avalancha</b>: pagar lo mínimo en todas y meter toda la plata que sobre en la deuda que cobra más interés. Cuando esa se acaba, su plata pasa a la siguiente.</p>
   </div></section>`;
   // presupuesto del plan
-  h+=`<section><h2>¿Cuánto van a dedicar a deudas cada mes?</h2><form class="card" id="f-plan" style="display:grid;gap:8px"><label>Plata para deudas al mes (sin contar las de nómina)<input id="pl-pres" inputmode="numeric" value="${pres}"></label><button class="btn pri" type="submit">Recalcular el plan</button>${c.ingreso?`<p class="note">Con un ingreso esperado de ${$$(c.ingreso)}, fijos de ${$$(Number(c.ppto.fijos)||0)} y comida de ${$$(Number(c.ppto.variables)||0)}, les quedarían ${$$(c.ingreso-pres-(Number(c.ppto.fijos)||0)-(Number(c.ppto.variables)||0))} para todo lo demás.</p>`:""}</form></section>`;
+  h+=`<section><h2>Así se reparte el sueldo</h2><div class="card list">
+   <div class="row"><span class="name">Ingreso esperado al mes</span><span class="amt">${$$(c.ingreso)}</span></div>
+   ${reparto.map(r=>`<div class="row"><div><div class="name">${r[0]}</div><div class="sub">${r[2]}</div></div><span class="amt">${Number(P[r[1]])?"−"+$$(Number(P[r[1]])):`<span class="pill warn">Sin definir</span>`}</span></div>`).join("")}
+   <div class="row" style="border-top:1px solid var(--line);padding-top:8px"><span class="name">Queda para deudas</span><span class="amt" style="color:var(--good)">${$$(sobra)}</span></div>
+   <p class="note">Primero se aparta lo de la casa y la familia; lo que sobra va a las deudas. Los valores se cambian en <b>Ajustes</b>.</p>
+  </div></section>
+  <section><h2>Plata para deudas</h2><form class="card" id="f-plan" style="display:grid;gap:8px"><label>Cuánto van a pagar a deudas al mes (sin las de nómina)<input id="pl-pres" inputmode="numeric" value="${pres}"></label><div class="btns"><button class="btn pri" type="submit">Recalcular el plan</button>${sobra&&pres!==Math.floor(sobra/10000)*10000?`<button class="btn" type="button" data-act="plan-sobra">Usar lo que sobra (${$$(Math.floor(sobra/10000)*10000)})</button>`:""}</div>${pres>sobra?`<div class="banner bad">Están poniendo ${$$(pres-sobra)} más de lo que sobra. Ese mes no alcanzaría para la casa.</div>`:sobra-pres>1?`<p class="note">Les quedan ${$$(sobra-pres)} de colchón además de lo apartado.</p>`:""}</form></section>`;
   if(!sim.ok){return h+`<div class="banner bad">Con ${$$(pres)} no alcanza ni para los mínimos (${$$(sim.minimos)} entre intereses y cuotas). Hay que subir la plata para deudas o negociar con los prestamistas.</div>`}
   // resultado
   const sInf=salirInf(sim), u=ultimo(sim), sInf2=salirInf(simMas), u2=ultimo(simMas);
@@ -702,6 +712,7 @@ document.addEventListener("click",e=>{
     case"borrar-gasto":confirmBox("¿Eliminar este gasto?",()=>{del(id);toast("Gasto eliminado")});break;
     case"borrar-tarjeta":confirmBox("¿Eliminar esta tarjeta?",()=>{del(id);toast("Tarjeta eliminada")});break;
     case"cargar-ejemplo":loadExample();break;
+    case"plan-sobra":{const c=cfg();const P=c.ppto||{};const ap=["fijos","variables","salidas","hormiga","imprevistos","ahorro"].reduce((s,k)=>s+(Number(P[k])||0),0);put("config",{...c,tipo:"config",planDeudas:Math.floor(Math.max((c.ingreso||0)-ap,0)/10000)*10000});toast("Plan recalculado con lo que sobra");break}
     case"ir-login":authMsg="";screen="login";render();break;
     case"ir-registro":authMsg="";screen="registro";render();break;
     case"olvide":{const em=(document.getElementById("a-email")||{}).value;if(!em){authMsg="Escribe tu correo arriba y vuelve a tocar Olvidé mi contraseña.";render();break}sendPasswordResetEmail(auth,em).then(()=>{authMsg="";toast("Te enviamos un correo para cambiar la contraseña")}).catch(err=>{authMsg=authError(err);render()});break}
