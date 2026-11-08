@@ -346,7 +346,7 @@ function vInicio(){
   const debts=byTipo("deuda").map(d=>({d,i:debtInfo(d)}));
   const totalDeuda=debts.reduce((s,x)=>s+(x.d.total||0),0), saldoTotal=debts.reduce((s,x)=>s+x.i.saldo,0);
   const avance=totalDeuda?(totalDeuda-saldoTotal)/totalDeuda:0;
-  const cuotas=debts.filter(x=>x.i.saldo>0&&!x.d.nomina).reduce((s,x)=>s+(x.d.cuota||0),0);
+  const cuotas=debts.filter(x=>x.i.saldo>0&&!x.d.nomina).reduce((s,x)=>s+Math.max(x.d.cuota||0,x.i.interesMes),0);
   const endeud=c.ingreso?cuotas/c.ingreso:0;
   const usedPct=recibido?Math.min(salio/recibido,1):(salio?1:0);
 
@@ -380,7 +380,7 @@ function vInicio(){
   // deudas resumen
   h+=`<section><div class="sec-h"><h2>Mis deudas</h2><button class="btn sm" data-tab="deudas">Ver todas</button></div>`;
   if(!debts.length) h+=`<div class="card empty"><p>Todavía no has agregado deudas.</p><button class="btn pri" data-act="nueva-deuda">Agregar una deuda</button></div>`;
-  else h+=`<div class="card" style="display:grid;gap:10px"><div class="grid2"><div class="kv"><span class="lbl">Saldo pendiente</span><b>${$$(saldoTotal)}</b></div><div class="kv"><span class="lbl">Ya pagado</span><b>${$$(totalDeuda-saldoTotal)}</b></div><div class="kv"><span class="lbl">Cuotas que pagas tú</span><b>${$$(cuotas)}</b></div><div class="kv"><span class="lbl">Del ingreso en cuotas</span><b>${c.ingreso?pct(endeud):"—"} <span class="pill ${!c.ingreso?"neutral":endeud<=.3?"good":"bad"}">${!c.ingreso?"—":endeud<=.3?"Sano":"Alto"}</span></b></div></div>${debts.some(x=>x.d.nomina)?`<p class="note">Las cuotas por nómina (${$$(debts.filter(x=>x.d.nomina&&x.i.saldo>0).reduce((s,x)=>s+(x.d.cuota||0),0))} al mes) ya vienen descontadas del ingreso.</p>`:""}<div class="row"><span class="sub">Avance general</span><b>${pct(avance)}</b></div><div class="bar"><i class="g" style="width:${avance*100}%"></i></div></div>`;
+  else h+=`<div class="card" style="display:grid;gap:10px"><div class="grid2"><div class="kv"><span class="lbl">Saldo pendiente</span><b>${$$(saldoTotal)}</b></div><div class="kv"><span class="lbl">Abonado a capital (total)</span><b>${$$(totalDeuda-saldoTotal)}</b></div><div class="kv"><span class="lbl">Mínimo al mes (cuotas e intereses)</span><b>${$$(cuotas)}</b></div><div class="kv"><span class="lbl">Del ingreso en cuotas</span><b>${c.ingreso?pct(endeud):"—"} <span class="pill ${!c.ingreso?"neutral":endeud<=.3?"good":"bad"}">${!c.ingreso?"—":endeud<=.3?"Sano":"Alto"}</span></b></div></div>${debts.some(x=>x.d.nomina)?`<p class="note">Las cuotas por nómina (${$$(debts.filter(x=>x.d.nomina&&x.i.saldo>0).reduce((s,x)=>s+(x.d.cuota||0),0))} al mes) ya vienen descontadas del ingreso.</p>`:""}<div class="row"><span class="sub">Avance general</span><b>${pct(avance)}</b></div><div class="bar"><i class="g" style="width:${avance*100}%"></i></div></div>`;
   h+=`</section>`;
   return h;
 }
