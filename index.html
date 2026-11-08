@@ -338,22 +338,22 @@ function extrasMes(){return byTipo("ingreso").filter(x=>(x.fecha||"").slice(0,7)
 function vInicio(){
   const c=cfg(), al=c.alerta/100;
   const ex=extrasMes().sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||"")), extra=ex.reduce((s,x)=>s+(x.valor||0),0), base=c.ingreso||0;
-  c.ingreso=base+extra;
+  const recibido=extra;
   const gm=gastosMes(), pm=pagosMes();
   const gastado=gm.reduce((s,g)=>s+(g.valor||0),0), pagadoMes=pm.reduce((s,p)=>s+(p.valor||0),0);
-  const salio=gastado+pagadoMes, queda=c.ingreso-salio;
+  const salio=gastado+pagadoMes, queda=recibido-salio;
   const debts=byTipo("deuda").map(d=>({d,i:debtInfo(d)}));
   const totalDeuda=debts.reduce((s,x)=>s+(x.d.total||0),0), saldoTotal=debts.reduce((s,x)=>s+x.i.saldo,0);
   const avance=totalDeuda?(totalDeuda-saldoTotal)/totalDeuda:0;
   const cuotas=debts.filter(x=>x.i.saldo>0&&!x.d.nomina).reduce((s,x)=>s+(x.d.cuota||0),0);
   const endeud=c.ingreso?cuotas/c.ingreso:0;
-  const usedPct=c.ingreso?Math.min(salio/c.ingreso,1):0;
+  const usedPct=recibido?Math.min(salio/recibido,1):(salio?1:0);
 
   let h=`<div class="top"><div><div class="lbl">Cuentas de la casa</div><h1>Así va ${esc(monthName(month).split(" ")[0])}</h1></div>${monthPicker()}</div>`;
   if(!c.ingreso) h+=`<div class="banner warn" style="margin-bottom:12px">Empieza por escribir el ingreso mensual del hogar en <b>Presupuesto</b>. Con eso se calculan los porcentajes.</div>`;
-  h+=`<div class="hero"><div><div class="lbl">Te queda este mes</div><div class="big">${c.ingreso?$$(queda):"—"}</div></div>
+  h+=`<div class="hero"><div><div class="lbl">Te queda este mes</div><div class="big">${$$(queda)}</div>${recibido?"":`<div style="opacity:.85;margin-top:4px">Todavía no ha llegado plata este mes. Cuando llegue el sueldo, anótalo en <b>Ingresos del mes</b>.</div>`}</div>
    <div class="meter" aria-label="Parte del ingreso usada"><i style="width:${usedPct*100}%"></i></div>
-   <div class="hero-row"><div><div class="lbl">Ingreso${extra?" (con extras)":""}</div><b>${$$(c.ingreso)}</b></div><div><div class="lbl">Gastos</div><b>${$$(gastado)}</b></div><div><div class="lbl">Pagos a deudas</div><b>${$$(pagadoMes)}</b></div></div></div>`;
+   <div class="hero-row"><div><div class="lbl">Recibido</div><b>${$$(recibido)}</b></div><div><div class="lbl">Gastos</div><b>${$$(gastado)}</b></div><div><div class="lbl">Pagos a deudas</div><b>${$$(pagadoMes)}</b></div></div></div>`;
 
   // alertas de pago
   const urg=debts.filter(x=>!x.d.nomina&&x.i.dias!=null&&x.i.dias<=7).sort((a,b)=>a.i.dias-b.i.dias);
@@ -365,7 +365,7 @@ function vInicio(){
   // 50/30/20
   const sumB=b=>gm.filter(g=>catOf(g.cat).b===b).reduce((s,g)=>s+(g.valor||0),0);
   const B=[["Necesidades",.5,sumB("nec"),"max"],["Deseos",.3,sumB("des"),"max"],["Ahorro y deudas",.2,sumB("aho")+pagadoMes,"min"]];
-  h+=`<section><div class="sec-h"><h2>Ingresos del mes</h2><button class="btn sm" data-act="nuevo-ingreso">Anotar ingreso extra</button></div><div class="card list"><div class="row"><div><div class="name">Ingreso fijo del hogar</div><div class="sub">Se cambia en Presupuesto</div></div><span class="amt">${$$(base)}</span></div>${ex.map(x=>`<div class="row"><div><div class="name">${esc(x.desc||"Ingreso extra")}</div><div class="sub">${esc(fmtDate(x.fecha))}</div></div><div style="display:flex;gap:6px;align-items:center"><span class="amt" style="color:var(--good)">+${$$(x.valor)}</span><button class="btn sm" data-act="editar-ingreso" data-id="${x.id}" aria-label="Editar">✎</button></div></div>`).join("")}${extra?`<div class="row"><span class="name">Total del mes</span><span class="amt">${$$(base+extra)}</span></div>`:""}</div></section>`;
+  h+=`<section><div class="sec-h"><h2>Ingresos del mes</h2><button class="btn sm pri" data-act="nuevo-ingreso">Anotar lo que llegó</button></div><div class="card list">${ex.map(x=>`<div class="row"><div><div class="name">${esc(x.desc||"Ingreso")}</div><div class="sub">${esc(fmtDate(x.fecha))}</div></div><div style="display:flex;gap:6px;align-items:center"><span class="amt" style="color:var(--good)">+${$$(x.valor)}</span><button class="btn sm" data-act="editar-ingreso" data-id="${x.id}" aria-label="Editar">✎</button></div></div>`).join("")||`<p class="note">Aún no ha llegado nada en ${esc(monthName(month).split(" ")[0])}.</p>`}<div class="row"><span class="sub">Recibido ${$$(recibido)} de ${$$(base)} esperado</span>${base&&recibido<base?`<span class="pill warn">Falta ${$$(base-recibido)}</span>`:recibido?`<span class="pill good">Completo</span>`:""}</div></div></section>`;
   h+=`<section><div class="sec-h"><h2>Regla 50/30/20</h2><span class="sub">del ingreso</span></div><div class="card list">${B.map(([n,meta,v,t])=>{
     const p=c.ingreso?v/c.ingreso:0; let cls="neutral",txt="Sin datos";
     if(c.ingreso&&v){if(t==="max"){cls=p<=meta?"good":"bad";txt=p<=meta?"Dentro de la meta":"Por encima"}else{cls=p>=meta?"good":"high";txt=p>=meta?"Cumpliendo":"Por debajo"}}
@@ -449,7 +449,7 @@ function vTarjetas(){
 function vAjustes(){
   const c=cfg();
   let h=`<div class="top"><div><div class="lbl">Plan del mes</div><h1>Presupuesto</h1></div></div>`;
-  h+=`<form class="card" id="f-cfg"><label>Ingreso mensual del hogar (lo que de verdad llega)<input id="c-ing" inputmode="numeric" value="${c.ingreso?c.ingreso:""}" placeholder="Ej: 3500000"></label>
+  h+=`<form class="card" id="f-cfg"><label>Ingreso esperado al mes (para calcular porcentajes)<input id="c-ing" inputmode="numeric" value="${c.ingreso?c.ingreso:""}" placeholder="Ej: 3500000"></label>
   <h3 style="margin-top:6px">Cuánto quieres gastar al mes</h3>
   ${CATS.map(k=>`<label><span><span class="cat-dot" style="background:${k.c}"></span>${k.n}</span><input id="c-${k.k}" inputmode="numeric" value="${c.ppto[k.k]||""}" placeholder="${c.ingreso?"Sugerido "+$$(c.ingreso*SUG[k.k]):"$0"}"></label>`).join("")}
   <button class="btn" type="button" data-act="sugerir">No sé cuánto: repartir mi ingreso automático</button>
@@ -486,7 +486,7 @@ const head=(t)=>`<div class="row"><h2>${t}</h2><button class="btn sm" data-act="
 
 function formChoice(){modal(head("¿Qué quieres anotar?")+`<div class="choice">
  <button class="btn" data-act="nuevo-gasto"><b>Un gasto</b><span class="sub">Mercado, servicios, tinto, domicilio, salida</span></button>
- <button class="btn" data-act="nuevo-ingreso"><b>Un ingreso extra</b><span class="sub">Trabajo, venta, prima: se suma al mes</span></button>
+ <button class="btn" data-act="nuevo-ingreso"><b>Plata que llegó</b><span class="sub">Sueldo, trabajo extra, venta, prima</span></button>
  <button class="btn" data-act="nuevo-fijo"><b>Una cuenta fija</b><span class="sub">Servicios, planes, arriendo: se repite cada mes</span></button>
  <button class="btn" data-act="pagar"><b>Un pago a una deuda</b><span class="sub">Cuota o abono; el saldo se descuenta solo</span></button>
  <button class="btn" data-act="nueva-deuda"><b>Una deuda nueva</b><span class="sub">Préstamo, crédito, fiado, tarjeta</span></button>
@@ -519,9 +519,9 @@ function formPago(deudaId){
 function updCap(){const el=document.getElementById("p-cap");if(!el)return;const val=num(document.getElementById("p-valor").value),int=num(document.getElementById("p-interes").value);el.textContent=val?("A la deuda le bajan "+$$(Math.max(val-int,0))+"."+(int>=val?" Con este valor solo pagas intereses.":"")):"";}
 function formIngreso(id){
   const x=id?items.get(id):{};
-  modal(head(id?"Editar ingreso":"Ingreso extra")+`<form id="f-ingreso" data-id="${id||""}">
+  modal(head(id?"Editar ingreso":"Plata que llegó")+`<form id="f-ingreso" data-id="${id||""}">
   <div class="f2"><label>Valor<input id="n-valor" required inputmode="numeric" value="${x.valor||""}"></label><label>Fecha<input id="n-fecha" type="date" value="${x.fecha||today()}"></label></div>
-  <label>De qué es<input id="n-desc" value="${esc(x.desc||"")}" placeholder="Ej: Trabajo extra, venta, prima"></label>
+  <label>De qué es<input id="n-desc" list="n-tipos" value="${esc(x.desc||"")}" placeholder="Ej: Sueldo, trabajo extra, prima"></label><datalist id="n-tipos"><option value="Sueldo Maygel"><option value="Sueldo esposa"><option value="Ingreso extra"><option value="Prima"></datalist>
   <p class="note">Consejo: lo extra rinde más si va directo a la deuda más cara.</p>
   <div class="btns"><button class="btn pri" type="submit">${id?"Guardar":"Anotar ingreso"}</button>${id?`<button class="btn danger" type="button" data-act="borrar-ingreso" data-id="${id}">Eliminar</button>`:""}</div></form>`);
 }
